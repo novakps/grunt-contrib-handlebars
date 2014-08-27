@@ -31,6 +31,33 @@ module.exports = function(grunt) {
     return name;
   };
 
+  /**
+   * Adds a doc string to the module. This allows us to suppress the
+   * "globalThis" warnings in closure.
+   */
+  var getModuleDocString = function() {
+    return [
+      '/**',
+      '* @fileoverview Precompiled handlebars templates for the app',
+      '* @suppress {globalThis}',
+      '*/'
+    ].join(grunt.util.linefeed);
+  };
+
+  /**
+   * Returns a goog.provide string based on the namespace and filename
+   */
+  var getClosureProvide = function(fullNamespace) {
+    return 'goog.provide("' + fullNamespace + '");'
+  };
+
+  /**
+   * Returns a string of a function defined in dot notation
+   */
+  var getClosureFunction = function(fullNamespace, compiled) {
+    return fullNamespace + ' = ' + compiled + ';'
+  };
+
   grunt.registerMultiTask('handlebars', 'Compile handlebars templates and partials.', function() {
     var options = this.options({
       namespace: 'JST',
@@ -66,6 +93,11 @@ module.exports = function(grunt) {
       var partials = [];
       var templates = [];
 
+      // Add the doc string to suppress globalThis checks if we are using closure
+      if (options.closure) {
+        templates.push(getModuleDocString());
+      }
+
       // iterate files, processing partials and templates separately
       f.src.filter(function(filepath) {
         // Warn on and remove invalid source files (if nonull was set).
@@ -79,10 +111,11 @@ module.exports = function(grunt) {
       .forEach(function(filepath) {
         var src = processContent(grunt.file.read(filepath));
         var Handlebars = require('handlebars');
-        var ast, compiled, filename;
+        var ast, compiled, filename, fullNamespace;
         try {
           // parse the handlebars template into it's AST
           ast = processAST(Handlebars.parse(src));
+
           compiled = Handlebars.precompile(ast, compilerOptions);
 
           // if configured to, wrap template in Handlebars.template call
@@ -108,13 +141,11 @@ module.exports = function(grunt) {
           }
         } else {
           filename = processName(filepath);
-   
           if (options.namespace !== false ) {
               if (options.closure) {
-                  templates.push('goog.provide("' + options.namespace + '.precompiled.' + filename + '");');
-                  templates.push('goog.require("' + options.namespace + '.params.' + filename  + 'Context");\ngoog.require("' + options.namespace + '.params.Options");');
-                  templates.push('/**\n * @param {' + options.namespace + '.params.' + filename  + 'Context} context\n * @param {' + options.namespace + '.params.Options=} options\n */');
-                  templates.push(options.namespace + '.precompiled.' + filename + ' = ' + compiled + ';');
+                  fullNamespace = options.namespace + '.' + filename;
+                  templates.push(getClosureProvide(fullNamespace));
+                  templates.push(getClosureFunction(fullNamespace, compiled));
               } else {
                   templates.push(nsInfo.namespace+'['+JSON.stringify(filename)+'] = '+compiled+';');
               }
@@ -130,9 +161,9 @@ module.exports = function(grunt) {
       } else {
         if (options.namespace !== false) {
             if (options.closure) {
-                 
+
             } else {
-            
+
                 output.unshift(nsInfo.declaration);
 
                 if (options.node) {
@@ -141,7 +172,7 @@ module.exports = function(grunt) {
 
                     var nodeExport = 'if (typeof exports === \'object\' && exports) {';
                     nodeExport += 'module.exports = ' + nsInfo.namespace + ';}';
-                    
+
                     output.push(nodeExport);
                 }
             }
